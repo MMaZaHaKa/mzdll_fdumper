@@ -1,7 +1,6 @@
 #include <windows.h>
 #include <psapi.h>
 #include <unordered_map>
-#include <unordered_set>
 #include <string>
 #include <vector>
 #include <fstream>
@@ -10,6 +9,8 @@ struct ExportInfo
 {
     std::string moduleName;
     std::string funcName;
+    uintptr_t moduleBase;
+    DWORD funcRva;
 };
 
 std::string GetProcessName()
@@ -34,6 +35,7 @@ void AddExportsFromModule(HMODULE hMod, std::unordered_map<uintptr_t, ExportInfo
 
     BYTE* base = reinterpret_cast<BYTE*>(mi.lpBaseOfDll);
     std::string moduleName = GetModuleName(hMod);
+    uintptr_t moduleBase = reinterpret_cast<uintptr_t>(base);
 
     IMAGE_DOS_HEADER* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
     if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE)
@@ -92,7 +94,7 @@ void AddExportsFromModule(HMODULE hMod, std::unordered_map<uintptr_t, ExportInfo
 
         if (addrToInfo.find(addr) == addrToInfo.end())
         {
-            addrToInfo[addr] = { moduleName, funcName };
+            addrToInfo[addr] = { moduleName, funcName, moduleBase, rva };
         }
     }
 }
@@ -118,11 +120,16 @@ void DumpToFile(const std::unordered_map<uintptr_t, ExportInfo>& addrToInfo)
     if (!file.is_open())
         return;
 
+    char buffer[512];
+    sprintf_s(buffer, "pfunc, pbasedll, poffset, sdllname, sfuncname\n");
+    file << buffer;
+
     for (const auto& pair : addrToInfo)
     {
-        char buffer[512];
-        sprintf_s(buffer, "0x%llx\t%s\t%s\n",
+        sprintf_s(buffer, "0x%llx\t0x%llx\t0x%x\t%s\t%s\n",
             (unsigned long long)pair.first,
+            (unsigned long long)pair.second.moduleBase,
+            pair.second.funcRva,
             pair.second.moduleName.c_str(),
             pair.second.funcName.c_str());
         file << buffer;
